@@ -13,11 +13,8 @@ Build real-world AI with RAG and agentic AI. Use AI tools to streamline automati
 
 ## 📚 Courses Included
 
-1. [**Programming for Everybody (Getting Started with Python)**](https://www.coursera.org/learn/python?specialization=python)
-2. [**Python Data Structures**](https://www.coursera.org/learn/python-data?specialization=python)
-3. [**Using Python to Access Web Data**](https://www.coursera.org/learn/python-network-data?specialization=python)
-4. [**Using Databases with Python**](https://www.coursera.org/learn/python-databases?specialization=python)
-5. [**Capstone: Retrieving, Processing, and Visualizing Data with Python**](https://www.coursera.org/learn/python-data-visualization?specialization=python)
+1. [**Develop Generative AI Applications: Get Started**](https://www.coursera.org/learn/develop-generative-ai-applications-get-started?specialization=ibm-rag-and-agentic-ai)
+
 
 ## 📋 Course Overview & Learning Path
 
