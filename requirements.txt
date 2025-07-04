@@ -2,3 +2,11 @@ langchain
 langchain-openai
 openai
 python-dotenv
+langgraph
+langchain-community
+tavily-python
+beautifulsoup4
+lxml
+faiss-cpu
+langchain-text-splitters
+beautifulsoup4
