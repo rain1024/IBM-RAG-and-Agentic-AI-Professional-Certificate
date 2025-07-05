@@ -5,9 +5,14 @@ python-dotenv
 langgraph
 langchain-community
 tavily-python
+langchain-tavily
 beautifulsoup4
 lxml
 faiss-cpu
 langchain-text-splitters
-beautifulsoup4
 streamlit
+chromadb
+langchain-chroma
+googlesearch-python
+requests
+tiktoken
