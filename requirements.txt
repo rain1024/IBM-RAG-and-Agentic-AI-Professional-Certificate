@@ -16,3 +16,4 @@ langchain-chroma
 googlesearch-python
 requests
 tiktoken
+gradio
