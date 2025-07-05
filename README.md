@@ -14,6 +14,7 @@ Build real-world AI with RAG and agentic AI. Use AI tools to streamline automati
 ## 📚 Courses Included
 
 1. [**Develop Generative AI Applications: Get Started**](https://www.coursera.org/learn/develop-generative-ai-applications-get-started?specialization=ibm-rag-and-agentic-ai)
+2. [**Build RAG Applications: Get Started**](https://www.coursera.org/learn/build-rag-applications-get-started/)
 
 
 ## 📋 Course Overview & Learning Path
