@@ -10,3 +10,4 @@ lxml
 faiss-cpu
 langchain-text-splitters
 beautifulsoup4
+streamlit

@@ -1,206 +1,204 @@
-#!/usr/bin/env python3
-"""
-Prompt Engineering Demo: Designing prompts with clear instructions and rich context
-Minh họa cách thiết kế prompts với hướng dẫn rõ ràng và ngữ cảnh phong phú
-"""
-
 import os
 from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI
+from langchain.schema import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import trim_messages
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import START, MessagesState, StateGraph
+import time
 
 # Load environment variables
 load_dotenv()
 
-print("=== PROMPT ENGINEERING: Clear Instructions & Rich Context ===\n")
+llm = AzureChatOpenAI(
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2023-12-01-preview"),
+    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+    temperature=0.7,
+    max_tokens=1000
+)
 
-# Setup Azure OpenAI connection
-print("1. Kết nối với Azure OpenAI...")
-try:
-    llm = AzureChatOpenAI(
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2023-12-01-preview"),
-        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-        temperature=0.3,
-        max_tokens=400
+def demo_without_memory():
+    """Demonstrate chatbot without memory - loses context between calls"""
+    print("\n" + "="*60)
+    print("DEMO 1: CHATBOT WITHOUT MEMORY")
+    print("="*60)
+    print("This bot loses context between each interaction\n")
+    
+    # First interaction
+    print("👤 User: Hi, my name is Alice. I'm 25 years old.")
+    messages = [
+        SystemMessage(content="You are a helpful AI assistant."),
+        HumanMessage(content="Hi, my name is Alice. I'm 25 years old.")
+    ]
+    response = llm.invoke(messages)
+    print(f"🤖 Bot: {response.content}")
+    
+    time.sleep(1)
+    
+    # Second interaction - bot has no memory of previous conversation
+    print("\n👤 User: What is my name and age?")
+    messages = [
+        SystemMessage(content="You are a helpful AI assistant."),
+        HumanMessage(content="What is my name and age?")
+    ]
+    response = llm.invoke(messages)
+    print(f"🤖 Bot: {response.content}")
+    
+    time.sleep(1)
+    
+    # Third interaction
+    print("\n👤 User: I told you my name earlier. Do you remember?")
+    messages = [
+        SystemMessage(content="You are a helpful AI assistant."),
+        HumanMessage(content="I told you my name earlier. Do you remember?")
+    ]
+    response = llm.invoke(messages)
+    print(f"🤖 Bot: {response.content}")
+    
+    print("\n❌ Result: The bot has no memory of previous conversations!")
+
+def demo_with_memory():
+    """Demonstrate chatbot with memory using LangGraph"""
+    print("\n" + "="*60)
+    print("DEMO 2: CHATBOT WITH MEMORY")
+    print("="*60)
+    print("This bot maintains context across interactions\n")
+    
+    # Create workflow with memory
+    workflow = StateGraph(state_schema=MessagesState)
+    
+    def call_model(state: MessagesState):
+        system_prompt = (
+            "You are a helpful assistant. "
+            "Answer all questions to the best of your ability."
+        )
+        messages = [SystemMessage(content=system_prompt)] + state["messages"]
+        response = llm.invoke(messages)
+        return {"messages": response}
+    
+    workflow.add_node("model", call_model)
+    workflow.add_edge(START, "model")
+    
+    # Add memory checkpointer
+    memory = MemorySaver()
+    app = workflow.compile(checkpointer=memory)
+    
+    # Configuration for this conversation thread
+    config = {"configurable": {"thread_id": "demo_conversation"}}
+    
+    # First interaction
+    print("👤 User: Hi, my name is Alice. I'm 25 years old.")
+    response = app.invoke(
+        {"messages": [HumanMessage(content="Hi, my name is Alice. I'm 25 years old.")]},
+        config=config
     )
-    print("✓ Kết nối thành công")
-except Exception as e:
-    print(f"✗ Lỗi kết nối: {e}")
-    exit(1)
+    print(f"🤖 Bot: {response['messages'][-1].content}")
+    
+    time.sleep(1)
+    
+    # Second interaction - bot should remember previous conversation
+    print("\n👤 User: What is my name and age?")
+    response = app.invoke(
+        {"messages": [HumanMessage(content="What is my name and age?")]},
+        config=config
+    )
+    print(f"🤖 Bot: {response['messages'][-1].content}")
+    
+    time.sleep(1)
+    
+    # Third interaction
+    print("\n👤 User: Can you tell me something about myself?")
+    response = app.invoke(
+        {"messages": [HumanMessage(content="Can you tell me something about myself?")]},
+        config=config
+    )
+    print(f"🤖 Bot: {response['messages'][-1].content}")
+    
+    print("\n✅ Result: The bot remembers our entire conversation!")
 
-print("\n" + "="*80)
+def demo_memory_management():
+    """Demonstrate memory management with message trimming"""
+    print("\n" + "="*60)
+    print("DEMO 3: MEMORY MANAGEMENT (MESSAGE TRIMMING)")
+    print("="*60)
+    print("This bot manages memory by keeping only recent messages\n")
+    
+    # Create workflow with trimming
+    workflow = StateGraph(state_schema=MessagesState)
+    
+    # Define trimmer - keep only last 4 messages
+    trimmer = trim_messages(strategy="last", max_tokens=4, token_counter=len)
+    
+    def call_model_with_trimming(state: MessagesState):
+        trimmed_messages = trimmer.invoke(state["messages"])
+        system_prompt = (
+            "You are a helpful assistant. "
+            "Answer all questions to the best of your ability."
+        )
+        messages = [SystemMessage(content=system_prompt)] + trimmed_messages
+        response = llm.invoke(messages)
+        return {"messages": response}
+    
+    workflow.add_node("model", call_model_with_trimming)
+    workflow.add_edge(START, "model")
+    
+    memory = MemorySaver()
+    app = workflow.compile(checkpointer=memory)
+    
+    config = {"configurable": {"thread_id": "trimming_demo"}}
+    
+    # Create a longer conversation
+    conversations = [
+        "Hi, my name is Bob and I'm from New York.",
+        "I work as a software engineer at a tech company.",
+        "My favorite programming language is Python.",
+        "I also enjoy playing guitar in my free time.",
+        "I have a pet dog named Max.",
+        "What do you remember about me?"
+    ]
+    
+    for i, user_input in enumerate(conversations, 1):
+        print(f"👤 User ({i}): {user_input}")
+        response = app.invoke(
+            {"messages": [HumanMessage(content=user_input)]},
+            config=config
+        )
+        print(f"🤖 Bot: {response['messages'][-1].content}")
+        
+        if i < len(conversations):
+            time.sleep(1)
+            print()
+    
+    print("\n⚠️  Result: The bot only remembers recent messages due to trimming!")
 
-# DEMO 1: VAGUE vs CLEAR INSTRUCTIONS
-print("DEMO 1: SO SÁNH PROMPT MƠHỒ vs RÕ RÀNG\n")
+def main():
+    """Run all demonstrations"""
+    print("LangChain Chatbot Memory Demonstration")
+    print("Based on: https://python.langchain.com/docs/how_to/chatbots_memory/")
+    
+    try:
+        # Demo 1: Without memory
+        demo_without_memory()
+        
+        # Demo 2: With memory
+        demo_with_memory()
+        
+        # Demo 3: Memory management
+        demo_memory_management()
+        
+        print("\n" + "="*60)
+        print("SUMMARY")
+        print("="*60)
+        print("1. Without Memory: Each interaction is independent")
+        print("2. With Memory: Full conversation history is maintained")
+        print("3. Memory Management: Recent messages are kept, older ones discarded")
+        print("\nMemory is crucial for creating conversational AI that feels natural!")
+        
+    except Exception as e:
+        print(f"Error running demonstration: {e}")
+        print("Make sure you have the required environment variables set in .env file")
 
-# BAD EXAMPLE: Vague prompt
-print("❌ PROMPT MƠHỒ (Không nên):")
-vague_prompt = "Viết về AI"
-print(f"Prompt: '{vague_prompt}'")
-print("Đang xử lý...")
-
-try:
-    response = llm.invoke(vague_prompt)
-    print(f"Kết quả: {response.content}")
-except Exception as e:
-    print(f"Lỗi: {e}")
-
-print("\n" + "-"*50)
-
-# GOOD EXAMPLE: Clear instructions
-print("✅ PROMPT RÕ RÀNG (Nên làm):")
-clear_prompt = """
-Viết một đoạn văn ngắn (khoảng 100 từ) về AI cho học sinh cấp 3.
-Yêu cầu:
-- Giải thích AI là gì một cách đơn giản
-- Đưa ra 2 ví dụ cụ thể về AI trong đời sống
-- Sử dụng ngôn ngữ dễ hiểu, không quá kỹ thuật
-- Kết thúc bằng một câu tích cực về tương lai AI
-"""
-print(f"Prompt: {clear_prompt}")
-print("Đang xử lý...")
-
-try:
-    response = llm.invoke(clear_prompt)
-    print(f"Kết quả: {response.content}")
-except Exception as e:
-    print(f"Lỗi: {e}")
-
-print("\n" + "="*80)
-
-# DEMO 2: NO CONTEXT vs RICH CONTEXT
-print("DEMO 2: SO SÁNH KHÔNG NGỮCẢNH vs NGỮCẢNH PHONG PHÚ\n")
-
-# BAD EXAMPLE: No context
-print("❌ KHÔNG NGỮCẢNH (Không nên):")
-no_context_prompt = "Tôi nên làm gì?"
-print(f"Prompt: '{no_context_prompt}'")
-print("Đang xử lý...")
-
-try:
-    response = llm.invoke(no_context_prompt)
-    print(f"Kết quả: {response.content}")
-except Exception as e:
-    print(f"Lỗi: {e}")
-
-print("\n" + "-"*50)
-
-# GOOD EXAMPLE: Rich context
-print("✅ NGỮCẢNH PHONG PHÚ (Nên làm):")
-rich_context_prompt = """
-NGỮCẢNH: Tôi là một sinh viên năm 3 ngành Công nghệ thông tin. Tôi đang học về AI và muốn tìm một dự án thực tế để thực hiện trong học kỳ này.
-
-THÔNG TIN BỔ SUNG:
-- Thời gian: 3 tháng
-- Kỹ năng hiện tại: Python cơ bản, đã học machine learning lý thuyết
-- Mục tiêu: Tạo ra sản phẩm có thể demo được
-- Sở thích: Game, âm nhạc, thể thao
-
-YÊU CẦU: Hãy đề xuất 3 ý tưởng dự án AI phù hợp với tình hình của tôi. Mỗi ý tưởng cần bao gồm:
-1. Tên dự án
-2. Mô tả ngắn gọn
-3. Công nghệ sử dụng
-4. Mức độ khó (1-10)
-5. Kết quả mong đợi
-"""
-print(f"Prompt: {rich_context_prompt}")
-print("Đang xử lý...")
-
-try:
-    response = llm.invoke(rich_context_prompt)
-    print(f"Kết quả: {response.content}")
-except Exception as e:
-    print(f"Lỗi: {e}")
-
-print("\n" + "="*80)
-
-# DEMO 3: ROLE-BASED PROMPTING WITH CONTEXT
-print("DEMO 3: PROMPT THEO VAI TRÒ VỚI NGỮCẢNH\n")
-
-role_prompt = """
-VAI TRÒ: Bạn là một chuyên gia tư vấn khách hàng của một ngân hàng với 10 năm kinh nghiệm.
-
-NGỮCẢNH: Khách hàng là một cặp vợ chồng trẻ (28 tuổi), mới cưới, đang có thu nhập ổn định 50 triệu/tháng, muốn mua nhà đầu tiên.
-
-THÔNG TIN KHÁCH HÀNG:
-- Tiết kiệm hiện tại: 800 triệu
-- Mức nhà mong muốn: 3-4 tỷ  
-- Vị trí: Gần trung tâm TP.HCM
-- Mục tiêu: Ổn định lâu dài, không muốn áp lực tài chính quá lớn
-
-NHIỆM VỤ: Hãy đưa ra lời khuyên chi tiết về:
-1. Chiến lược tài chính (tỷ lệ vay/vốn tự có)
-2. Loại hình vay phù hợp
-3. Những lưu ý quan trọng khi mua nhà
-4. Timeline thực hiện
-
-YÊU CẦU: Trả lời theo phong cách chuyên nghiệp nhưng thân thiện, dễ hiểu.
-"""
-print(f"Prompt: {role_prompt}")
-print("Đang xử lý...")
-
-try:
-    response = llm.invoke(role_prompt)
-    print(f"Kết quả: {response.content}")
-except Exception as e:
-    print(f"Lỗi: {e}")
-
-print("\n" + "="*80)
-
-# DEMO 4: STRUCTURED OUTPUT WITH CONSTRAINTS
-print("DEMO 4: YÊU CẦU ĐỊNH DẠNG ĐẦU RA CỤ THỂ\n")
-
-structured_prompt = """
-NHIỆM VỤ: Phân tích SWOT cho công ty khởi nghiệp về ứng dụng giao đồ ăn.
-
-NGỮCẢNH:
-- Công ty: FoodExpress
-- Thị trường: Việt Nam
-- Giai đoạn: Startup mới thành lập
-- Đối thủ chính: Grab Food, Shopee Food, Baemin
-
-YÊU CẦU ĐỊNH DẠNG:
-Strengths (Điểm mạnh):
-- [Điểm 1]: [Giải thích ngắn]
-- [Điểm 2]: [Giải thích ngắn]
-- [Điểm 3]: [Giải thích ngắn]
-
-Weaknesses (Điểm yếu):
-- [Điểm 1]: [Giải thích ngắn]
-- [Điểm 2]: [Giải thích ngắn]
-- [Điểm 3]: [Giải thích ngắn]
-
-Opportunities (Cơ hội):
-- [Cơ hội 1]: [Giải thích ngắn]
-- [Cơ hội 2]: [Giải thích ngắn]
-- [Cơ hội 3]: [Giải thích ngắn]
-
-Threats (Thách thức):
-- [Thách thức 1]: [Giải thích ngắn]
-- [Thách thức 2]: [Giải thích ngắn]
-- [Thách thức 3]: [Giải thích ngắn]
-
-KHUYẾN NGHỊ CHIẾN LƯỢC:
-[2-3 câu tổng kết và đề xuất hướng phát triển]
-
-LƯU Ý: Mỗi mục chỉ nên 1-2 câu, tập trung vào thông tin quan trọng nhất.
-"""
-print(f"Prompt: {structured_prompt}")
-print("Đang xử lý...")
-
-try:
-    response = llm.invoke(structured_prompt)
-    print(f"Kết quả: {response.content}")
-except Exception as e:
-    print(f"Lỗi: {e}")
-
-print("\n" + "="*80)
-print("✅ DEMO HOÀN THÀNH!")
-print("\nCÁC NGUYÊN TẮC PROMPT ENGINEERING ĐÃ MINH HỌA:")
-print("1. 🎯 Hướng dẫn rõ ràng thay vì mơ hồ")
-print("2. 📖 Cung cấp ngữ cảnh phong phú")
-print("3. 🎭 Sử dụng vai trò cụ thể")
-print("4. 📋 Yêu cầu định dạng đầu ra")
-print("5. ⚡ Ràng buộc và giới hạn rõ ràng")
-print("\n💡 KẾT LUẬN: Prompt tốt = Hướng dẫn rõ ràng + Ngữ cảnh phong phú = Kết quả chất lượng cao!")
+if __name__ == "__main__":
+    main()
