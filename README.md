@@ -19,6 +19,8 @@ Build real-world AI with RAG and agentic AI. Use AI tools to streamline automati
 
 **6.** [**Fundamentals of Building AI Agents**](https://www.coursera.org/learn/fundamentals-of-building-ai-agents/)
 
+**7.** [**Agentic AI with LangChain and LangGraph**](https://www.coursera.org/learn/agentic-ai-with-langchain-and-langgraph?specialization=ibm-rag-and-agentic-ai)
+
 
 ## 📋 Course Overview & Learning Path
 
