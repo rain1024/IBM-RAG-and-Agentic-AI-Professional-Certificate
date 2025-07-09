@@ -1,5 +1,5 @@
 """
-LangChain Function Calling Demo
+LangChain SQL Agent Demo
 ================================================================================
 
 Module: script03.py
@@ -9,258 +9,162 @@ Last Modified: 2025
 Development Environment: Cursor IDE with Claude-4-Sonnet
 
 DESCRIPTION:
-    This module demonstrates LangChain function calling functionality with LLM.
-    Uses AzureChatOpenAI with add and subtract functions as tools.
-    Based on: https://python.langchain.com/docs/how_to/function_calling/
+    This module demonstrates how to execute commands in an SQL agent using LangChain's
+    create_sql_agent functionality. Creates a simple SQLite database with sample data
+    and shows how to execute SQL queries through natural language commands using an
+    AI agent that can understand and translate natural language to SQL commands.
 """
 
 import os
+import sqlite3
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
-from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, ToolMessage
-from typing import Dict, Any
+from langchain_cohere import create_sql_agent
+from langchain_openai import AzureChatOpenAI
+from langchain_community.utilities import SQLDatabase
 
 # Load environment variables
 load_dotenv()
 
-# Initialize LLM using init_chat_model
-llm = init_chat_model(
-    model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-    model_provider="azure_openai",
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2023-12-01-preview"),
-    temperature=0.1,
-    max_tokens=1000
-)
-
-@tool
-def add(a: float, b: float) -> float:
-    """Add two numbers together.
+def create_sample_database():
+    """Create a simple SQLite database with sample data for demonstration"""
     
-    Args:
-        a: First number
-        b: Second number
-        
-    Returns:
-        The sum of a and b
-    """
-    return a + b
-
-@tool
-def subtract(a: float, b: float) -> float:
-    """Subtract the second number from the first number.
+    # Create in-memory SQLite database
+    conn = sqlite3.connect("sample_company.db")
+    cursor = conn.cursor()
     
-    Args:
-        a: First number
-        b: Second number to subtract from a
-        
-    Returns:
-        The result of a - b
-    """
-    return a - b
+    # Create employees table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS employees (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            department TEXT NOT NULL,
+            salary INTEGER NOT NULL,
+            hire_date TEXT NOT NULL
+        )
+    """)
+    
+    # Create departments table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS departments (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            manager TEXT NOT NULL,
+            budget INTEGER NOT NULL
+        )
+    """)
+    
+    # Insert sample employees
+    employees_data = [
+        (1, "Alice Johnson", "Engineering", 85000, "2023-01-15"),
+        (2, "Bob Smith", "Marketing", 65000, "2023-02-20"),
+        (3, "Carol Davis", "Engineering", 90000, "2022-11-10"),
+        (4, "David Wilson", "Sales", 70000, "2023-03-05"),
+        (5, "Eva Brown", "HR", 60000, "2023-01-30"),
+        (6, "Frank Miller", "Engineering", 95000, "2022-09-15"),
+        (7, "Grace Lee", "Marketing", 68000, "2023-04-12"),
+        (8, "Henry Taylor", "Sales", 75000, "2022-12-08")
+    ]
+    
+    cursor.executemany("""
+        INSERT OR REPLACE INTO employees (id, name, department, salary, hire_date)
+        VALUES (?, ?, ?, ?, ?)
+    """, employees_data)
+    
+    # Insert sample departments
+    departments_data = [
+        (1, "Engineering", "Carol Davis", 500000),
+        (2, "Marketing", "Grace Lee", 300000),
+        (3, "Sales", "Henry Taylor", 400000),
+        (4, "HR", "Eva Brown", 200000)
+    ]
+    
+    cursor.executemany("""
+        INSERT OR REPLACE INTO departments (id, name, manager, budget)
+        VALUES (?, ?, ?, ?)
+    """, departments_data)
+    
+    conn.commit()
+    conn.close()
+    
+    print("Sample database created successfully!")
+    print("Tables: employees, departments")
+    print("Sample data inserted.")
 
-def demo_basic_function_calling():
-    """Demonstrate basic function calling with LLM"""
+def demo_sql_agent():
+    """Demonstrate SQL agent functionality"""
     print("\n" + "="*60)
-    print("Demo: Basic Function Calling")
+    print("Demo: SQL Agent with Natural Language Queries")
     print("="*60)
     
-    # Create tools list
-    tools = [add, subtract]
+    # Create sample database
+    create_sample_database()
     
-    # Bind tools to LLM
-    llm_with_tools = llm.bind_tools(tools)
+    # Connect to the database
+    db = SQLDatabase.from_uri("sqlite:///sample_company.db")
+    
+    # Initialize Azure OpenAI LLM
+    llm = AzureChatOpenAI(
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2023-12-01-preview"),
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        temperature=0.7,
+        max_tokens=500
+    )
+    
+    # Create SQL agent
+    agent_executor = create_sql_agent(
+        llm=llm,
+        db=db,
+        verbose=True,
+        top_k=10,
+        max_iterations=15
+    )
     
     # Test queries
     queries = [
-        "What is 25 + 37?",
-        "Calculate 100 - 42",
-        "What's 15.5 plus 8.3?",
-        "Subtract 7.2 from 20.8",
-        "What is 3 + 12? Also, what is 11 + 49?",
+        "Có bao nhiêu nhân viên có mức lương trên 70000",
+        "Ngân sách của mỗi phòng ban là bao nhiêu"
     ]
     
     for query in queries:
-        print(f"\nQuery: {query}")
-        print("-" * 40)
+        print(f"\nNatural Language Query: {query}")
+        print("-" * 50)
         
-        # Invoke LLM with tools
-        result = llm_with_tools.invoke([HumanMessage(content=query)])
+        try:
+            response = agent_executor.invoke({"input": query})
+            print(f"Agent Response: {response['output']}")
+        except Exception as e:
+            print(f"Error: {e}")
         
-        # Print tool calls if any
-        if result.tool_calls:
-            print("Tool calls:")
-            for tool_call in result.tool_calls:
-                print(f"  - {tool_call['name']}: {tool_call['args']}")
-        else:
-            print("No tool calls detected")
-            print(f"Response: {result.content}")
+        print("\n" + "="*50)
 
-def demo_tool_execution():
-    """Demonstrate executing tools and passing results back to model"""
+def show_database_schema():
+    """Display the database schema for reference"""
     print("\n" + "="*60)
-    print("Demo: Tool Execution with Results")
+    print("Database Schema")
     print("="*60)
     
-    # Create tools list and lookup
-    tools = [add, subtract]
-    tool_map = {tool.name: tool for tool in tools}
+    # First create the database if it doesn't exist
+    create_sample_database()
     
-    # Bind tools to LLM
-    llm_with_tools = llm.bind_tools(tools)
+    db = SQLDatabase.from_uri("sqlite:///sample_company.db")
+    print("Available tables:")
+    print(db.get_table_names())
     
-    query = "What is 45 + 28? Then subtract 15 from that result."
-    print(f"Query: {query}")
-    print("-" * 40)
-    
-    # Start conversation
-    messages = [HumanMessage(content=query)]
-    
-    # Get initial response with tool calls
-    ai_msg = llm_with_tools.invoke(messages)
-    messages.append(ai_msg)
-    
-    print("Initial AI response with tool calls:")
-    if ai_msg.tool_calls:
-        for tool_call in ai_msg.tool_calls:
-            print(f"  - {tool_call['name']}: {tool_call['args']}")
-    
-    # Execute tools and add results to conversation
-    if ai_msg.tool_calls:
-        for tool_call in ai_msg.tool_calls:
-            selected_tool = tool_map[tool_call["name"]]
-            tool_output = selected_tool.invoke(tool_call["args"])
-            messages.append(ToolMessage(
-                content=str(tool_output), 
-                tool_call_id=tool_call["id"]
-            ))
-            print(f"Tool result: {tool_call['name']}({tool_call['args']}) = {tool_output}")
-    
-    # Get final response
-    final_response = llm_with_tools.invoke(messages)
-    print(f"\nFinal response: {final_response.content}")
-
-def demo_streaming_function_calls():
-    """Demonstrate streaming with function calls"""
-    print("\n" + "="*60)
-    print("Demo: Streaming Function Calls")
-    print("="*60)
-    
-    # Create tools list
-    tools = [add, subtract]
-    
-    # Bind tools to LLM
-    llm_with_tools = llm.bind_tools(tools)
-    
-    query = "Calculate 123 + 456 and then subtract 100 from the result"
-    print(f"Query: {query}")
-    print("-" * 40)
-    
-    print("Streaming response:")
-    
-    # Stream the response
-    gathered = None
-    for chunk in llm_with_tools.stream([HumanMessage(content=query)]):
-        if gathered is None:
-            gathered = chunk
-        else:
-            gathered = gathered + chunk
-        
-        # Show tool calls as they build up
-        if hasattr(gathered, 'tool_calls') and gathered.tool_calls:
-            print(f"Current tool calls: {len(gathered.tool_calls)}")
-            for i, tool_call in enumerate(gathered.tool_calls):
-                print(f"  {i+1}. {tool_call.get('name', 'Unknown')}: {tool_call.get('args', {})}")
-    
-    print(f"\nFinal gathered tool calls: {gathered.tool_calls if hasattr(gathered, 'tool_calls') else 'None'}")
-
-def demo_few_shot_prompting():
-    """Demonstrate few-shot prompting for better tool usage"""
-    print("\n" + "="*60)
-    print("Demo: Few-Shot Prompting for Complex Operations")
-    print("="*60)
-    
-    from langchain_core.messages import AIMessage
-    from langchain_core.prompts import ChatPromptTemplate
-    from langchain_core.runnables import RunnablePassthrough
-    
-    # Create tools list
-    tools = [add, subtract]
-    
-    # Bind tools to LLM
-    llm_with_tools = llm.bind_tools(tools)
-    
-    # Create few-shot examples
-    examples = [
-        HumanMessage(
-            "What's 100 plus 50 minus 25?", 
-            name="example_user"
-        ),
-        AIMessage(
-            "",
-            name="example_assistant",
-            tool_calls=[
-                {"name": "add", "args": {"a": 100, "b": 50}, "id": "1"}
-            ],
-        ),
-        ToolMessage("150", tool_call_id="1"),
-        AIMessage(
-            "",
-            name="example_assistant",
-            tool_calls=[
-                {"name": "subtract", "args": {"a": 150, "b": 25}, "id": "2"}
-            ],
-        ),
-        ToolMessage("125", tool_call_id="2"),
-        AIMessage(
-            "The result of 100 plus 50 minus 25 is 125.",
-            name="example_assistant",
-        ),
-    ]
-    
-    # Create prompt with examples
-    system = """You are a helpful calculator assistant. Always use tools for mathematical operations.
-    Follow the order of operations and use the provided examples as guidance."""
-    
-    few_shot_prompt = ChatPromptTemplate.from_messages([
-        ("system", system),
-        *examples,
-        ("human", "{query}"),
-    ])
-    
-    # Create chain
-    chain = {"query": RunnablePassthrough()} | few_shot_prompt | llm_with_tools
-    
-    # Test complex query
-    query = "Calculate 200 plus 75 minus 50"
-    print(f"Query: {query}")
-    print("-" * 40)
-    
-    result = chain.invoke(query)
-    
-    if result.tool_calls:
-        print("Tool calls made:")
-        for tool_call in result.tool_calls:
-            print(f"  - {tool_call['name']}: {tool_call['args']}")
-    else:
-        print("No tool calls detected")
-        print(f"Response: {result.content}")
+    print("\nTable info:")
+    print(db.get_table_info())
 
 def main():
-    """Main function to run all demos"""
-    print("LangChain Function Calling Demo")
+    """Main function to run the SQL agent demo"""
+    print("LangChain SQL Agent Demo")
     print("=" * 80)
     
-    # Run all demos
-    demo_basic_function_calling()
-    demo_tool_execution()
-    demo_streaming_function_calls()
-    demo_few_shot_prompting()
+    # Show database schema
+    show_database_schema()
     
-    print("\n" + "="*80)
-    print("Demo completed!")
+    # Run the demo
+    demo_sql_agent()
 
 if __name__ == "__main__":
     main() 
