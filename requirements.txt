@@ -10,11 +10,16 @@ tiktoken
 gradio
 streamlit
 langchain
+langchain-experimental
 langchain-text-splitters
+langchain-cohere
+langchain-community
 transformers
 torch
 sentence-transformers
 numpy
+pandas
+tabulate
 matplotlib
 seaborn
 tree-sitter
